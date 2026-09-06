@@ -10,10 +10,17 @@
  * `__advisor.jsonl` recorded 309 `advise` calls covering 92 unique notes —
  * 114× `Stop.`, 52× `No issue; continue.`, 41× `Done.` — flooding the primary
  * transcript with `<advisory severity="blocker">Stop.</advisory>` after the
- * task was already complete. The fix is to make the rules load-bearing in code
- * instead of prose: silently drop duplicates, content-free self-talk, and
- * over-budget calls at the `enqueueAdvice` boundary so the primary stays
- * clean even when the advisor misbehaves.
+ * task was already complete.
+ *
+ * A 2026-09-06 scan across 49 `__advisor*.jsonl` session logs (910 `advise`
+ * calls) found 169 more brief content-free notes: 86× `noop`, 55×
+ * `Mid-turn: stay silent.`, 25× exact-remainder `Silence: …` statuses, and
+ * three equivalent silence variants.
+ *
+ * The fix is to make the rules load-bearing in code instead of prose:
+ * silently drop duplicates, content-free self-talk, and over-budget calls at
+ * the `enqueueAdvice` boundary so the primary stays clean even when the
+ * advisor misbehaves.
  *
  * The gate is intentionally invisible to the advisor model — `AdviseTool`
  * still returns `Recorded.` for a suppressed call. Surfacing "suppressed"
@@ -43,8 +50,8 @@ export function normalizeAdvisorNote(note: string): string {
  * so a single membership check covers every punctuation/casing variant
  * (`"Stop."`, `"stop"`, `"STOP!"`).
  *
- * The list is conservative — only short, content-free filler the reporter
- * observed driving primary-transcript pollution. A genuine `blocker` like
+ * The list is conservative — only short, content-free filler observed in
+ * issue #3520 or across the session-log scan above. A genuine `blocker` like
  * `"Stop: 'await' missing on writeStream.end() will lose buffered writes."`
  * does not match.
  */
@@ -90,7 +97,48 @@ const SUPPRESSED_NORMALIZED_PHRASES: Record<string, true> = {
 	"on track": true,
 	continue: true,
 	"carry on": true,
+	// Direct filler observed across 49 `__advisor*.jsonl` session logs (910 `advise` calls).
+	noop: true,
+	"mid turn stay silent": true,
+	"agent mid turn silent": true,
+	"mid turn staying silent": true,
+	"all clear silent": true,
+	// Exact remainders observed after a `Silence:` marker in the same scan;
+	// `silent` is the unobserved symmetric spelling (system.md tells advisors "→ SILENT.").
+	"standing by": true,
+	idle: true,
+	"waiting on user prompt": true,
+	"waiting on user input": true,
+	"waiting for user input": true,
+	"still waiting for user input": true,
+	"turn complete no action needed": true,
+	"awaiting user instructions": true,
+	"agent ready": true,
+	"ready for next instruction": true,
+	"standing by for user input": true,
+	ready: true,
+	"awaiting test completion": true,
+	"agent is idle awaiting user input": true,
 };
+
+/**
+ * Matches a bare `silence` / `silent` marker or a marker followed by one
+ * exact suppressed phrase. A blanket prefix rule was rejected because it
+ * swallowed actionable notes such as `"Silence filtering drops a real
+ * blocker"`. A token vocabulary was rejected too because it swallowed
+ * `"Silent: add test for new user input."`. Stripping the marker and reusing
+ * the exact phrase table keeps both notes deliverable.
+ */
+function isSilenceNarration(key: string): boolean {
+	if (key === "silence" || key === "silent") return true;
+
+	let markerLength = 0;
+	if (key.startsWith("silence ")) markerLength = "silence ".length;
+	else if (key.startsWith("silent ")) markerLength = "silent ".length;
+	if (markerLength === 0) return false;
+
+	return SUPPRESSED_NORMALIZED_PHRASES[key.slice(markerLength)] === true;
+}
 
 /**
  * Bounds the dedupe history. Sessions with very long advisor activity could
@@ -162,7 +210,7 @@ export class AdvisorEmissionGuard {
 	accept(note: string): boolean {
 		const key = normalizeAdvisorNote(note);
 		if (!key) return false;
-		if (SUPPRESSED_NORMALIZED_PHRASES[key]) return false;
+		if (SUPPRESSED_NORMALIZED_PHRASES[key] || isSilenceNarration(key)) return false;
 		if (this.#seen.has(key)) return false;
 		if (this.#consumedThisUpdate) return false;
 		this.#consumedThisUpdate = true;

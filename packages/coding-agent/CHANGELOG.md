@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Content-free advisor silence/status narration no longer reaches the primary transcript, while actionable notes mentioning silence still do.
+
 ## [18.1.12] - 2026-09-06
 
 - Fixed edit and write results to report the formatted bytes actually committed by LSP writethrough.

@@ -27,7 +27,7 @@ describe("normalizeAdvisorNote", () => {
 });
 
 describe("AdvisorEmissionGuard", () => {
-	it("drops the exact content-free filler the reporter observed flooding the chat", () => {
+	it("drops exact content-free filler observed in issue and session logs", () => {
 		// Issue #3520: 114× "Stop.", 52× "No issue; continue.", 41× "Done." —
 		// none of these carry a concrete reason and they cannot be acted on, so
 		// the guard suppresses them regardless of severity.
@@ -37,6 +37,30 @@ describe("AdvisorEmissionGuard", () => {
 		expect(guard.accept("No issue; continue.")).toBe(false);
 		expect(guard.accept("LGTM")).toBe(false);
 		expect(guard.accept("No further watcher input needed.")).toBe(false);
+		expect(guard.accept("NOOP!")).toBe(false);
+		expect(guard.accept("Mid-turn; stay SILENT.")).toBe(false);
+		expect(guard.accept("ALL CLEAR — SILENT.")).toBe(false);
+	});
+
+	it("drops bare silence markers and markers followed by an exact suppressed phrase", () => {
+		const notes = [
+			"Silence.",
+			"Silent.",
+			"Silence: standing by.",
+			"Silent — waiting on user prompt",
+			"Silence: no issues.",
+		];
+		expect(notes.map(note => new AdvisorEmissionGuard().accept(note))).toEqual([false, false, false, false, false]);
+	});
+
+	it("delivers actionable notes that begin with silence or silent", () => {
+		const notes = [
+			"Silence: test next turn; action required.",
+			"Silent: add test for new user input.",
+			"Silence filtering drops a real blocker in emission-guard.ts",
+			"Silence: the retry loop in foo.ts never terminates",
+		];
+		expect(notes.map(note => new AdvisorEmissionGuard().accept(note))).toEqual([true, true, true, true]);
 	});
 
 	it("dedupes by normalized text across the session, ignoring casing and trailing punctuation", () => {
